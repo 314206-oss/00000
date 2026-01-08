@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>尾牙幸運大抽獎</title>
+    <style>
+        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #fce4ec; color: #333; text-align: center; margin: 0; padding: 20px; }
+        h1 { color: #d32f2f; margin-bottom: 10px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        
+        /* 控制區 */
+        .controls { margin-bottom: 20px; padding: 15px; background: #fff3e0; border-radius: 10px; border: 1px solid #ffe0b2; }
+        button { cursor: pointer; padding: 10px 20px; font-size: 16px; border: none; border-radius: 5px; margin: 5px; transition: 0.3s; }
+        .btn-draw { background-color: #d32f2f; color: white; font-weight: bold; font-size: 20px; }
+        .btn-draw:hover { background-color: #b71c1c; transform: scale(1.05); }
+        .btn-reset { background-color: #607d8b; color: white; }
+        .btn-init { background-color: #ff9800; color: white; }
+        
+        /* 顯示區 */
+        #current-winner { font-size: 24px; color: #d32f2f; font-weight: bold; margin: 20px 0; min-height: 40px; animation: pop 0.5s ease; }
+        
+        /* 列表區 */
+        .list-container { display: flex; gap: 20px; text-align: left; }
+        .column { flex: 1; background: #fafafa; padding: 10px; border-radius: 8px; border: 1px solid #eee; max-height: 400px; overflow-y: auto; }
+        .column h3 { border-bottom: 2px solid #ddd; padding-bottom: 5px; margin-top: 0; }
+        
+        .item-row { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #eee; }
+        .delete-btn { color: red; cursor: pointer; font-size: 12px; border: 1px solid red; padding: 2px 5px; border-radius: 3px; }
+        .delete-btn:hover { background: red; color: white; }
+
+        @keyframes pop { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🎉 年終尾牙大抽獎 🎉</h1>
+    
+    <div class="controls">
+        <p>資料庫狀態：<span id="status">連線中...</span></p>
+        <button class="btn-init" id="btn-init">1. 初始化資料 (重設員工與獎品)</button>
+        <button class="btn-draw" id="btn-draw">2. 🎁 立即抽獎</button>
+        <button class="btn-reset" id="btn-clear">3. 清空得獎名單</button>
+    </div>
+
+    <div id="current-winner">準備開始...</div>
+
+    <div class="list-container">
+        <div class="column">
+            <h3>🏆 得獎名單 (<span id="winner-count">0</span>)</h3>
+            <div id="winner-list">載入中...</div>
+        </div>
+        
+        <div class="column">
+            <h3>🎁 剩餘獎品 (<span id="prize-count">0</span>)</h3>
+            <div id="prize-list">載入中...</div>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+  // 1. 引入必要的 Firebase 函式庫
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+  import { getFirestore, collection, addDoc, getDocs, doc, deleteDoc, onSnapshot, query, orderBy, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+  // 2. 你的 Firebase 設定
+  const firebaseConfig = {
+    apiKey: "AIzaSyBoL3DxXJRhM6GOtXr6Zws9JWM4XJcHJpc",
+    authDomain: "hw8-f71c9.firebaseapp.com",
+    projectId: "hw8-f71c9",
+    storageBucket: "hw8-f71c9.firebasestorage.app",
+    messagingSenderId: "949628146758",
+    appId: "1:949628146758:web:42b8fbb0c006c4f039a647",
+    measurementId: "G-LL2LQS68JN"
+  };
+
+  // 3. 初始化 Firebase
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const statusSpan = document.getElementById('status');
+  statusSpan.innerText = "已連線至 Firebase";
+  statusSpan.style.color = "green";
+
+  // 資料庫集合名稱
+  const COLL_PRIZES = "prizes";
+  const COLL_EMPLOYEES = "employees";
+  const COLL_WINNERS = "winners";
+
+  // --- 功能 1: 初始化資料 (Create) ---
+  // 產生 120 位員工和 100 個獎品
+  document.getElementById('btn-init').addEventListener('click', async () => {
+      if(!confirm("確定要重置所有資料嗎？這會刪除目前的紀錄並重新產生假資料。")) return;
+      
+      const batch = writeBatch(db);
+      statusSpan.innerText = "正在初始化資料...";
+
+      // 清空舊資料 (簡單實作：實際專案應分批刪除，這裡假設資料量少)
+      const list = [COLL_PRIZES, COLL_EMPLOYEES, COLL_WINNERS];
+      for(const colName of list) {
+          const snapshot = await getDocs(collection(db, colName));
+          snapshot.forEach(doc => batch.delete(doc.ref));
+      }
+
+      // 1. 建立 120 位員工
+      for (let i = 1; i <= 120; i++) {
+          const empRef = doc(collection(db, COLL_EMPLOYEES));
+          batch.set(empRef, { name: `員工 ${i.toString().padStart(3, '0')} 號`, taken: false });
+      }
+
+      // 2. 建立 100 個獎品 (假定結構)
+      // 特獎 1個, 頭獎 3個, 二獎 6個, 普獎 90個
+      const prizes = [
+          { name: "🚀 特獎: 歐洲來回機票", count: 1 },
+          { name: "💎 頭獎: iPhone 15 Pro", count: 3 },
+          { name: "💰 二獎: 現金 $10,000", count: 6 },
+          { name: "🎁 普獎: 百貨禮券 $1,000", count: 90 }
+      ];
+
+      prizes.forEach(p => {
+          for(let j=0; j<p.count; j++) {
+             const prizeRef = doc(collection(db, COLL_PRIZES));
+             batch.set(prizeRef, { name: p.name, taken: false, order: j }); // order用於排序
+          }
+      });
+
+      await batch.commit();
+      statusSpan.innerText = "資料初始化完成！";
+      alert("資料已重置！");
+  });
+
+  // --- 功能 2: 抽獎邏輯 (Update & Create) ---
+  document.getElementById('btn-draw').addEventListener('click', async () => {
+      // 1. 撈取未抽出的獎品
+      const prizeQ = query(collection(db, COLL_PRIZES));
+      const prizeSnap = await getDocs(prizeQ);
+      const availablePrizes = prizeSnap.docs.map(d => ({id: d.id, ...d.data()})).filter(p => !p.taken);
+
+      if (availablePrizes.length === 0) {
+          alert("所有獎品都抽完了！");
+          return;
+      }
+
+      // 2. 撈取未中獎的員工
+      const empQ = query(collection(db, COLL_EMPLOYEES));
+      const empSnap = await getDocs(empQ);
+      const availableEmps = empSnap.docs.map(d => ({id: d.id, ...d.data()})).filter(e => !e.taken);
+
+      if (availableEmps.length === 0) {
+          alert("所有員工都中獎了！(或者人數不足)");
+          return;
+      }
+
+      // 3. 隨機抽選
+      const randomEmpIndex = Math.floor(Math.random() * availableEmps.length);
+      const winnerEmp = availableEmps[randomEmpIndex];
+      
+      // 獎品順序：這裡簡單邏輯，按順序抽，或者隨機抽。我們取第一個可用的獎品(通常是大獎在先或後看輸入順序)
+      // 為了刺激，我們這裡隨機抽一個獎品出來
+      const randomPrizeIndex = Math.floor(Math.random() * availablePrizes.length);
+      const prizeWon = availablePrizes[randomPrizeIndex];
+
+      // 4. 寫入資料庫 (使用 Batch 確保一致性)
+      const batch = writeBatch(db);
+
+      // 標記員工已中獎
+      const empRef = doc(db, COLL_EMPLOYEES, winnerEmp.id);
+      batch.update(empRef, { taken: true });
+
+      // 標記獎品已抽出
+      const prizeRef = doc(db, COLL_PRIZES, prizeWon.id);
+      batch.update(prizeRef, { taken: true });
+
+      // 新增到得獎名單
+      const winnerRef = doc(collection(db, COLL_WINNERS));
+      batch.set(winnerRef, { 
+          empName: winnerEmp.name, 
+          prizeName: prizeWon.name,
+          timestamp: new Date()
+      });
+
+      await batch.commit();
+
+      // UI 動畫
+      const display = document.getElementById('current-winner');
+      display.innerHTML = `恭喜 <span style="color:#d32f2f;font-size:30px">${winnerEmp.name}</span><br>獲得 <span style="background:#ffd54f;padding:0 5px">${prizeWon.name}</span>`;
+  });
+
+  // --- 功能 3: 清空得獎名單 (Delete All - for reset) ---
+  document.getElementById('btn-clear').addEventListener('click', async () => {
+      if(!confirm("確定要清空得獎紀錄？(員工將恢復未中獎狀態，獎品恢復未抽出)")) return;
+      // 這裡為了簡單，建議直接按「初始化資料」按鈕即可。
+      // 但如果要單純清空，邏輯較複雜(需回滾狀態)，此處建議引導使用者用初始化。
+      alert("請使用「初始化資料」按鈕來完全重置整個活動。");
+  });
+
+  // --- 功能 4: 監聽資料庫變化 (Read & Real-time Update) ---
+  
+  // 監聽得獎名單
+  const qWinners = query(collection(db, COLL_WINNERS), orderBy("timestamp", "desc"));
+  onSnapshot(qWinners, (snapshot) => {
+      const listDiv = document.getElementById('winner-list');
+      listDiv.innerHTML = "";
+      document.getElementById('winner-count').innerText = snapshot.size;
+
+      snapshot.forEach(docSnap => {
+          const data = docSnap.data();
+          const div = document.createElement('div');
+          div.className = 'item-row';
+          div.innerHTML = `
+              <span><b>${data.empName}</b> - ${data.prizeName}</span>
+              <span class="delete-btn" id="del-${docSnap.id}">刪除</span>
+          `;
+          listDiv.appendChild(div);
+
+          // 綁定個別刪除功能 (Delete)
+          document.getElementById(`del-${docSnap.id}`).addEventListener('click', async () => {
+              if(confirm(`確定刪除 ${data.empName} 的中獎紀錄？(注意：需手動重置該員工/獎品狀態或直接重置全部)`)) {
+                  await deleteDoc(doc(db, COLL_WINNERS, docSnap.id));
+              }
+          });
+      });
+  });
+
+  // 監聽剩餘獎品
+  const qPrizes = query(collection(db, COLL_PRIZES));
+  onSnapshot(qPrizes, (snapshot) => {
+      const listDiv = document.getElementById('prize-list');
+      listDiv.innerHTML = "";
+      
+      const remaining = snapshot.docs.filter(d => !d.data().taken);
+      document.getElementById('prize-count').innerText = remaining.length;
+
+      // 簡單顯示前 20 個剩餘獎品避免洗版
+      remaining.slice(0, 20).forEach(docSnap => {
+          const data = docSnap.data();
+          const div = document.createElement('div');
+          div.className = 'item-row';
+          div.innerText = data.name;
+          listDiv.appendChild(div);
+      });
+      if(remaining.length > 20) {
+          const div = document.createElement('div');
+          div.style.padding = "10px";
+          div.style.color = "#777";
+          div.innerText = `...還有 ${remaining.length - 20} 個獎品`;
+          listDiv.appendChild(div);
+      }
+  });
+
+</script>
+
+</body>
+</html>
